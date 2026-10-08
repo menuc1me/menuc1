@@ -3,86 +3,166 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>منو</title>
 <style>
-  body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;background:#1a0f0a;color:#fff;font-family:Tahoma,sans-serif;text-align:center;padding:20px}
-  a{color:#ffd9b4;font-size:16px}
-  button{margin-top:14px;padding:12px 26px;border:0;border-radius:99px;background:#fe7b01;color:#1c0f08;font:700 15px Tahoma,sans-serif}
-  .sp{width:34px;height:34px;margin:0 auto 14px;border:4px solid rgba(255,255,255,.2);border-top-color:#fe7b01;border-radius:50%;animation:r 1s linear infinite}
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; min-height:100dvh;
+    display:grid; place-items:center; padding:24px;
+    background:#1a0f0a; color:#fff;
+    font-family:Tahoma,sans-serif; text-align:center;
+  }
+  .card{
+    width:100%; max-width:420px; padding:32px 24px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(254,123,1,.3);
+    border-radius:20px;
+  }
+  h1{font-size:20px; margin:8px 0; color:#ffd9b4}
+  .sub{font-size:13px; color:#a09080; margin:0 0 20px}
+  .spin{
+    width:36px; height:36px; margin:0 auto 14px;
+    border:4px solid rgba(255,255,255,.15);
+    border-top-color:#fe7b01; border-radius:50%;
+    animation:r 1s linear infinite;
+  }
   @keyframes r{to{transform:rotate(360deg)}}
+  #status{font-size:14px; margin:0 0 16px}
+  #links{display:none}
+  #links p{font-size:12px; color:#a09080; margin:16px 0 8px}
+  #links a{
+    display:block; padding:14px; margin:8px 0;
+    color:#ffd9b4; text-decoration:none; font-size:15px;
+    border:1px solid rgba(254,123,1,.4);
+    border-radius:12px; background:rgba(254,123,1,.08);
+  }
 </style>
 </head>
 <body>
-<div>
-  <div class="sp" id="sp"></div>
-  <p id="m">در حال اتصال به منو...</p>
-  <div id="l"></div>
-  <noscript>
-    <p><a href="https://menuc1.ir/">menuc1.ir</a></p>
-    <p><a href="https://menu4.servervnp23.workers.dev/">menu4.servervnp23.workers.dev</a></p>
-  </noscript>
+<div class="card">
+  <div style="font-size:38px">💞</div>
+  <h1 id="cafeName"></h1>
+  <p class="sub">در حال پیدا کردن بهترین مسیر...</p>
+  <div class="spin" id="spin"></div>
+  <p id="status">لطفاً صبر کن</p>
+
+  <div id="links">
+    <p>اگر خودکار باز نشد، اپراتورت رو انتخاب کن:</p>
+  </div>
 </div>
+
 <script>
-// آدرس‌های واقعی سایت (بدون / در انتها). ترتیب = اولویت.
-var SITES = ["https://menuc1.ir", "https://menu4.servervnp23.workers.dev"];
-var TIMEOUT = 12000;          // حداکثر انتظار برای مسابقهٔ کامل (میلی‌ثانیه)
-var FAST = 3000;              // انتظار برای آدرسی که دفعهٔ قبل جواب داده بود
-var KEEP = 6 * 3600 * 1000;   // انتخاب قبلی تا چند ساعت یادآوری شود
+/* =====================================================
+   ✏️ فقط این قسمت رو تغییر بده
+   ===================================================== */
 
-var done = false;
-var suffix = location.search + location.hash;   // مثلا ?table=5 حفظ می‌شود
+// اسم کافه (بالای صفحه نشون داده میشه)
+var CAFE_NAME = "کافه دوست دخترم تاج سرم";
 
-function save(u) { try { localStorage.setItem("gw", JSON.stringify({ u: u, t: Date.now() })); } catch (e) {} }
-function saved() {
-  try {
-    var o = JSON.parse(localStorage.getItem("gw") || "null");
-    return o && SITES.indexOf(o.u) > -1 && Date.now() - o.t < KEEP ? o.u : null;
-  } catch (e) { return null; }
-}
-function ping(u, ms) {
-  return new Promise(function (ok, no) {
-    var c = new AbortController();
-    var t = setTimeout(function () { c.abort(); }, ms);
-    fetch(u + "/ping?_t=" + Date.now(), { mode: "no-cors", cache: "no-store", signal: c.signal })
-      .then(function () { clearTimeout(t); ok(u); })
-      .catch(function () { clearTimeout(t); no(u); });
-  });
-}
-function go(u) {
-  if (done) return;
-  done = true;
-  save(u);
-  location.replace(u + "/" + suffix);
-}
-function showLinks() {
-  document.getElementById("sp").style.display = "none";
-  document.getElementById("m").textContent = "اتصال خودکار برقرار نشد؛ یکی از لینک‌ها را امتحان کن:";
-  var box = document.getElementById("l");
-  SITES.forEach(function (u) {
-    var p = document.createElement("p"), a = document.createElement("a");
-    a.href = u + "/" + suffix;
-    a.textContent = u.replace("https://", "");
-    p.appendChild(a);
-    box.appendChild(p);
-  });
-  var b = document.createElement("button");
-  b.textContent = "تلاش دوباره";
-  b.onclick = function () { location.reload(); };
-  box.appendChild(b);
-}
-function race() {
-  var left = SITES.length;
-  SITES.forEach(function (u) {
-    ping(u, TIMEOUT).then(go).catch(function () {
-      left--;
-      if (left === 0 && !done) showLinks();
-    });
-  });
+// لینک‌ها: هر خط یک سایت
+// name = اسمی که روی دکمه دستی نشون داده میشه
+// url  = آدرس کامل سایت
+var SITES = [
+  { name: "همراه اول", url: "https://www.menuc1.ir" },
+  { name: "ایرانسل",   url: "https://menuc1.ir" }
+];
+
+// چند ثانیه صبر کنه تا جواب بگیره (میلی‌ثانیه)
+var TIMEOUT = 6000;
+
+// بعد از اولین جواب موفق، چقدر صبر کنه ببینه سایت دیگه سریع‌تره یا نه
+var WAIT_FOR_OTHERS = 1200;
+
+// بعد از چند ثانیه دکمه‌های دستی نشون داده بشه
+var SHOW_MANUAL_AFTER = 4000;
+
+/* =====================================================
+   ⛔ از اینجا به پایین نیازی به تغییر نیست
+   ===================================================== */
+
+document.title = "منو | " + CAFE_NAME;
+document.getElementById("cafeName").textContent = CAFE_NAME;
+
+var extra = location.search + location.hash;
+var statusEl = document.getElementById("status");
+var linksEl = document.getElementById("links");
+var spinEl = document.getElementById("spin");
+
+var results = [];      // سایت‌هایی که جواب دادند
+var finished = 0;
+var redirected = false;
+var graceTimer = null;
+
+function fullUrl(site) {
+  return site.url.replace(/\/+$/, "") + "/" + extra;
 }
 
-var s = saved();
-if (s) ping(s, FAST).then(go).catch(race);   // مسیر سریع برای بازدید دوباره
-else race();
+// دکمه‌های دستی
+SITES.forEach(function (site) {
+  var a = document.createElement("a");
+  a.href = fullUrl(site);
+  a.textContent = site.name;
+  linksEl.appendChild(a);
+});
+
+function showManual() {
+  if (redirected) return;
+  linksEl.style.display = "block";
+}
+setTimeout(showManual, SHOW_MANUAL_AFTER);
+
+function redirect() {
+  if (redirected) return;
+  redirected = true;
+  // سریع‌ترین سایت رو انتخاب کن
+  results.sort(function (a, b) { return a.time - b.time; });
+  var best = results[0].site;
+  statusEl.textContent = "وصل شد ✓ " + best.name;
+  location.replace(fullUrl(best));
+}
+
+function onResult(site, ok, time) {
+  finished++;
+  if (ok) {
+    results.push({ site: site, time: time });
+    // اولین موفقیت: یه مکث کوتاه که سایت‌های دیگه هم فرصت جواب دادن داشته باشن
+    if (!graceTimer) graceTimer = setTimeout(redirect, WAIT_FOR_OTHERS);
+  }
+  if (finished === SITES.length) {
+    if (results.length > 0) {
+      clearTimeout(graceTimer);
+      redirect();
+    } else {
+      spinEl.style.display = "none";
+      statusEl.textContent = "اتصال خودکار برقرار نشد";
+      showManual();
+    }
+  }
+}
+
+function probe(site) {
+  var start = Date.now();
+  var ctrl = new AbortController();
+  var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
+
+  fetch(site.url.replace(/\/+$/, "") + "/?_t=" + start, {
+    method: "GET",
+    mode: "no-cors",
+    cache: "no-store",
+    signal: ctrl.signal
+  })
+  .then(function () {
+    clearTimeout(timer);
+    onResult(site, true, Date.now() - start);
+  })
+  .catch(function () {
+    clearTimeout(timer);
+    onResult(site, false, 0);
+  });
+}
+
+SITES.forEach(probe);
 </script>
 </body>
 </html>
