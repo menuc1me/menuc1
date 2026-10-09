@@ -28,7 +28,8 @@
     animation:r 1s linear infinite;
   }
   @keyframes r{to{transform:rotate(360deg)}}
-  #status{font-size:14px; margin:0 0 16px}
+  #status{font-size:14px; margin:0 0 10px}
+  #diag{font-size:11px; color:#a09080; margin:0 0 16px; direction:ltr; min-height:16px}
   #links{display:none}
   #links p{font-size:12px; color:#a09080; margin:16px 0 8px}
   #links a{
@@ -41,11 +42,12 @@
 </head>
 <body>
 <div class="card">
-  <div style="font-size:38px"></div>
+  <div style="font-size:38px">☕</div>
   <h1 id="cafeName"></h1>
   <p class="sub">در حال پیدا کردن بهترین مسیر...</p>
   <div class="spin" id="spin"></div>
   <p id="status">لطفاً صبر کن</p>
+  <p id="diag"></p>
 
   <div id="links">
     <p>اگر خودکار باز نشد، اپراتورت رو انتخاب کن:</p>
@@ -57,112 +59,182 @@
    ✏️ فقط این قسمت رو تغییر بده
    ===================================================== */
 
-// اسم کافه (بالای صفحه نشون داده میشه)
+// اسم کافه (اختیاری، روی سرعت اثری نداره)
 var CAFE_NAME = "";
 
-// لینک‌ها: هر خط یک سایت
-// name = اسمی که روی دکمه دستی نشون داده میشه
-// url  = آدرس کامل سایت
+// لینک‌ها
 var SITES = [
   { name: "همراه اول", url: "https://www.menuc1.ir" },
   { name: "ایرانسل",   url: "https://menuc1.ir" }
 ];
 
-// چند ثانیه صبر کنه تا جواب بگیره (میلی‌ثانیه)
-var TIMEOUT = 6000;
+// مسیر تست (اگه توی ورکر /ping ساختی بذار "/ping"، وگرنه "/")
+var PING_PATH = "/";
 
-// بعد از اولین جواب موفق، چقدر صبر کنه ببینه سایت دیگه سریع‌تره یا نه
-var WAIT_FOR_OTHERS = 1200;
+// هر سایت در هر دور چند پینگ همزمان بگیره
+var PARALLEL = 2;
 
-// بعد از چند ثانیه دکمه‌های دستی نشون داده بشه
-var SHOW_MANUAL_AFTER = 4000;
+// دورهای پینگ (میلی‌ثانیه بعد از شروع). اگه دور اول جواب نداد، دور بعد خودکار میاد
+var WAVES = [0, 1500, 3500];
+
+// اگه اولین جواب سریع‌تر از این بود، همون لحظه می‌ره (میلی‌ثانیه)
+var FAST_MS = 900;
+
+// اگه اولین جواب کند بود، این‌قدر صبر می‌کنه ببینه سایت دیگه بهتره یا نه
+var GRACE_MS = 700;
+
+// حداکثر انتظار هر پینگ
+var TIMEOUT = 5000;
+
+// بعد از چند میلی‌ثانیه دکمه‌های دستی نشون داده بشه
+var SHOW_MANUAL_AFTER = 3500;
 
 /* =====================================================
    ⛔ از اینجا به پایین نیازی به تغییر نیست
    ===================================================== */
 
-document.title = "منو | " + CAFE_NAME;
+document.title = CAFE_NAME ? "منو | " + CAFE_NAME : "منو";
 document.getElementById("cafeName").textContent = CAFE_NAME;
 
 var extra = location.search + location.hash;
 var statusEl = document.getElementById("status");
+var diagEl = document.getElementById("diag");
 var linksEl = document.getElementById("links");
 var spinEl = document.getElementById("spin");
-
-var results = [];      // سایت‌هایی که جواب دادند
-var finished = 0;
 var redirected = false;
-var graceTimer = null;
+var gen = 0, ctrls = [], timers = [], res = {}, failed = {};
 
-function fullUrl(site) {
-  return site.url.replace(/\/+$/, "") + "/" + extra;
-}
+function base(site) { return site.url.replace(/\/+$/, ""); }
+function fullUrl(site) { return base(site) + "/" + extra; }
 
-// دکمه‌های دستی
+// دکمه‌های دستی + تلاش دوباره
 SITES.forEach(function (site) {
   var a = document.createElement("a");
   a.href = fullUrl(site);
   a.textContent = site.name;
   linksEl.appendChild(a);
 });
+var retry = document.createElement("a");
+retry.href = "#";
+retry.textContent = "تلاش دوباره ↻";
+retry.onclick = function (e) { e.preventDefault(); start(); };
+linksEl.appendChild(retry);
 
-function showManual() {
-  if (redirected) return;
-  linksEl.style.display = "block";
+function showManual() { if (!redirected) linksEl.style.display = "block"; }
+
+// وضعیت زندهٔ هر سایت (زمان پاسخ)
+function diag() {
+  var per = PARALLEL * WAVES.length;
+  diagEl.textContent = SITES.map(function (s, i) {
+    var v = res[i] != null ? Math.round(res[i]) + "ms" : ((failed[i] || 0) >= per ? "x" : "...");
+    return s.url.replace(/^https?:\/\//, "") + " " + v;
+  }).join("   ");
 }
-setTimeout(showManual, SHOW_MANUAL_AFTER);
 
-function redirect() {
+function go(site) {
   if (redirected) return;
   redirected = true;
-  // سریع‌ترین سایت رو انتخاب کن
-  results.sort(function (a, b) { return a.time - b.time; });
-  var best = results[0].site;
-  statusEl.textContent = "وصل شد ✓ " + best.name;
-  location.replace(fullUrl(best));
+  stop();
+  statusEl.textContent = "وصل شد ✓ " + site.name;
+  location.replace(fullUrl(site));
 }
 
-function onResult(site, ok, time) {
-  finished++;
-  if (ok) {
-    results.push({ site: site, time: time });
-    // اولین موفقیت: یه مکث کوتاه که سایت‌های دیگه هم فرصت جواب دادن داشته باشن
-    if (!graceTimer) graceTimer = setTimeout(redirect, WAIT_FOR_OTHERS);
-  }
-  if (finished === SITES.length) {
-    if (results.length > 0) {
-      clearTimeout(graceTimer);
-      redirect();
-    } else {
-      spinEl.style.display = "none";
-      statusEl.textContent = "اتصال خودکار برقرار نشد";
-      showManual();
-    }
-  }
+function fail() {
+  if (redirected) return;
+  spinEl.style.display = "none";
+  statusEl.textContent = "اتصال خودکار برقرار نشد";
+  showManual();
 }
 
-function probe(site) {
-  var start = Date.now();
+function stop() {
+  ctrls.forEach(function (c) { try { c.abort(); } catch (e) {} });
+  timers.forEach(clearTimeout);
+  ctrls = []; timers = [];
+}
+
+// یک پینگ: به محض رسیدن هدر جواب، موفق حساب می‌شه (بدنه دانلود نمی‌شه)
+function ping(site, cb) {
   var ctrl = new AbortController();
-  var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
-
-  fetch(site.url.replace(/\/+$/, "") + "/?_t=" + start, {
+  ctrls.push(ctrl);
+  var t0 = performance.now();
+  var t = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
+  fetch(base(site) + PING_PATH + "?_t=" + Date.now() + Math.random().toString(36).slice(2, 6), {
     method: "GET",
     mode: "no-cors",
     cache: "no-store",
+    priority: "high",
     signal: ctrl.signal
   })
-  .then(function () {
-    clearTimeout(timer);
-    onResult(site, true, Date.now() - start);
-  })
-  .catch(function () {
-    clearTimeout(timer);
-    onResult(site, false, 0);
-  });
+  .then(function () { clearTimeout(t); cb(true, performance.now() - t0); })
+  .catch(function () { clearTimeout(t); cb(false, 0); });
 }
 
-SITES.forEach(probe);
+// هر بار که صدا زده بشه از صفر شروع می‌کنه
+function start() {
+  stop();
+  var g = ++gen;
+  var total = SITES.length * PARALLEL * WAVES.length, done = 0, grace = false;
+  res = {}; failed = {};
+  spinEl.style.display = "";
+  statusEl.textContent = "لطفاً صبر کن";
+  diag();
+
+  function best() {
+    var bi = -1;
+    for (var i in res) if (bi < 0 || res[i] < res[bi]) bi = i;
+    return bi < 0 ? null : { i: +bi, ms: res[bi] };
+  }
+  function decide() {
+    var b = best();
+    if (!b) return;
+    var all = Object.keys(res).length === SITES.length;
+    if (b.ms <= FAST_MS || all) return go(SITES[b.i]);
+    if (!grace) {
+      grace = true;
+      timers.push(setTimeout(function () { var x = best(); if (x) go(SITES[x.i]); }, GRACE_MS));
+    }
+  }
+
+  function wave() {
+    if (redirected || g !== gen) return;
+    SITES.forEach(function (site, idx) {
+      for (var k = 0; k < PARALLEL; k++) {
+        ping(site, function (ok, ms) {
+          if (g !== gen || redirected) return;
+          done++;
+          if (ok) {
+            if (res[idx] == null || ms < res[idx]) res[idx] = ms;
+            diag();
+            decide();
+          } else {
+            failed[idx] = (failed[idx] || 0) + 1;
+            diag();
+            if (done === total && !Object.keys(res).length) fail();
+          }
+        });
+      }
+    });
+  }
+
+  WAVES.forEach(function (w) {
+    if (w === 0) wave(); else timers.push(setTimeout(wave, w));
+  });
+  timers.push(setTimeout(showManual, SHOW_MANUAL_AFTER));
+}
+
+// اگه وسط کار نت عوض شد (سیم‌کارت یا وای‌فای) از اول شروع کن
+function onNet() { if (!redirected) start(); }
+window.addEventListener("online", onNet);
+if (navigator.connection && navigator.connection.addEventListener) {
+  navigator.connection.addEventListener("change", onNet);
+}
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && !redirected) start();
+});
+// اگه مرورگر صفحه رو از حافظهٔ قبلی برگردوند (با وضعیت قدیمی)، تازه‌اش کن
+window.addEventListener("pageshow", function (e) { if (e.persisted) location.reload(); });
+
+start();
 </script>
 </body>
 </html>
