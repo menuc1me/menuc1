@@ -2,149 +2,136 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#2b1d15">
+<link rel="icon" href="data:,">
 <title>منو</title>
 <style>
-  *{box-sizing:border-box}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{--bg:#2b1d15;--hi:#3b2a1f;--lo:#1b120c;--tx:#f4e6d8;--mut:#b9a18c;--ac:#fe7b01}
+  html,body{margin:0}
   body{
-    margin:0; min-height:100vh; min-height:100dvh;
+    min-height:100vh; min-height:100dvh;
     display:grid; place-items:center; padding:24px;
-    background:#1a0f0a; color:#fff;
-    font-family:Tahoma,sans-serif; text-align:center;
+    background:var(--bg); color:var(--tx);
+    font-family:Vazirmatn,Tahoma,"Segoe UI",system-ui,sans-serif; text-align:center;
   }
   .card{
-    width:100%; max-width:420px; padding:32px 24px;
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(254,123,1,.3);
-    border-radius:20px;
+    width:100%; max-width:380px; padding:36px 24px 28px;
+    border-radius:30px; background:var(--bg);
+    box-shadow:10px 10px 22px var(--lo),-10px -10px 22px var(--hi);
   }
-  h1{font-size:20px; margin:8px 0; color:#ffd9b4}
-  .sub{font-size:13px; color:#a09080; margin:0 0 20px}
-  .spin{
-    width:36px; height:36px; margin:0 auto 14px;
-    border:4px solid rgba(255,255,255,.15);
-    border-top-color:#fe7b01; border-radius:50%;
-    animation:r 1s linear infinite;
+  h1{font-size:21px; font-weight:700; margin:0 0 26px}
+
+  /* حلقهٔ فرورفته با کمان نارنجی */
+  .ring{
+    position:relative; width:76px; height:76px; margin:0 auto 24px; border-radius:50%;
+    box-shadow:inset 6px 6px 12px var(--lo),inset -6px -6px 12px var(--hi);
   }
-  @keyframes r{to{transform:rotate(360deg)}}
-  #status{font-size:14px; margin:0 0 10px}
-  #diag{font-size:11px; color:#a09080; margin:0 0 16px; direction:ltr; min-height:16px}
-  #links{display:none}
-  #links p{font-size:12px; color:#a09080; margin:16px 0 8px}
-  #links a{
-    display:block; padding:14px; margin:8px 0;
-    color:#ffd9b4; text-decoration:none; font-size:15px;
-    border:1px solid rgba(254,123,1,.4);
-    border-radius:12px; background:rgba(254,123,1,.08);
+  .ring::after{
+    content:""; position:absolute; top:11px; right:11px; bottom:11px; left:11px;
+    border-radius:50%; border:4px solid transparent; border-top-color:var(--ac);
+    animation:spin .9s linear infinite;
+  }
+  .failed .ring::after{animation:none; border-top-color:var(--mut); opacity:.5}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  #status{margin:0; min-height:25px; font-size:14px; line-height:1.8; color:var(--mut)}
+
+  /* انتخاب دستی */
+  .panel{display:none; margin-top:26px}
+  .panel.on{display:block; animation:in .35s ease-out}
+  @keyframes in{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+  .ask{margin:0 0 16px; font-size:15px; font-weight:700}
+  .ops{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:16px}
+  .btn{
+    display:block; padding:15px 8px; border-radius:16px;
+    background:var(--bg); color:var(--tx); text-decoration:none;
+    font-size:15px; font-weight:700;
+    box-shadow:6px 6px 12px var(--lo),-6px -6px 12px var(--hi);
+    transition:box-shadow .15s,color .15s;
+  }
+  .btn:active{box-shadow:inset 4px 4px 8px var(--lo),inset -4px -4px 8px var(--hi); color:var(--ac)}
+  .btn:focus-visible{outline:2px solid var(--ac); outline-offset:3px}
+  .retry{margin-top:20px; font-size:14px; font-weight:400; color:var(--mut)}
+
+  @media (prefers-reduced-motion:reduce){
+    .ring::after{animation-duration:3s}
+    .panel.on{animation:none}
   }
 </style>
 </head>
 <body>
-<div class="card">
-  <div style="font-size:38px">☕</div>
-  <h1 id="cafeName"></h1>
-  <p class="sub">در حال پیدا کردن بهترین مسیر...</p>
-  <div class="spin" id="spin"></div>
-  <p id="status">لطفاً صبر کن</p>
-  <p id="diag"></p>
-
-  <div id="links">
-    <p>اگر خودکار باز نشد، اپراتورت رو انتخاب کن:</p>
-  </div>
-</div>
+<main class="card">
+  <h1 id="cafeName">منو</h1>
+  <div class="ring" aria-hidden="true"></div>
+  <p id="status" role="status" aria-live="polite">در حال پیدا کردن بهترین مسیر</p>
+  <section id="panel" class="panel">
+    <p class="ask">اینترنت گوشیت کدومه؟</p>
+    <div class="ops" id="ops"></div>
+    <a class="btn retry" id="retry" href="#">تلاش دوباره</a>
+  </section>
+</main>
 
 <script>
 /* =====================================================
-   ✏️ فقط این قسمت رو تغییر بده
+   فقط این قسمت رو تغییر بده
    ===================================================== */
 
-// اسم کافه (اختیاری، روی سرعت اثری نداره)
+// اسم کافه (اختیاری). خالی بمونه، بالای صفحه فقط "منو" نوشته می‌شه
 var CAFE_NAME = "";
 
-// لینک‌ها
+// هر خط = یک اپراتور
+//   name: اسمی که روی دکمهٔ انتخاب دستی نوشته می‌شه
+//   url : آدرسی که برای اون اینترنت باز می‌شه
+// برای عوض کردن، فقط url ها رو جابه‌جا کن. هر کدوم اول لیست باشه زودتر پینگ می‌شه.
 var SITES = [
   { name: "همراه اول", url: "https://www.menuc1.ir" },
   { name: "ایرانسل",   url: "https://menuc1.ir" }
 ];
 
-// مسیر تست (اگه توی ورکر /ping ساختی بذار "/ping"، وگرنه "/")
+// مسیر تست. بهتره یه آدرس خیلی سبک مثل "/ping" بسازی که فقط یه جواب خالی بده
+// (مثلاً با ورکر کلادفلر). اگه نداری "/" بمونه.
 var PING_PATH = "/";
 
-// هر سایت در هر دور چند پینگ همزمان بگیره
-var PARALLEL = 2;
-
-// دورهای پینگ (میلی‌ثانیه بعد از شروع). اگه دور اول جواب نداد، دور بعد خودکار میاد
-var WAVES = [0, 1500, 3500];
-
-// اگه اولین جواب سریع‌تر از این بود، همون لحظه می‌ره (میلی‌ثانیه)
-var FAST_MS = 900;
-
-// اگه اولین جواب کند بود، این‌قدر صبر می‌کنه ببینه سایت دیگه بهتره یا نه
-var GRACE_MS = 700;
+// پینگ‌ها در این لحظه‌ها (میلی‌ثانیه بعد از شروع) برای هر دو سایت شلیک می‌شن.
+// اتصال‌های قبلی قطع نمی‌شن، پس اگه بسته‌ای گم بشه، دور بعد جلوتر می‌افته.
+var WAVES = [0, 800, 1900, 3500];
 
 // حداکثر انتظار هر پینگ
-var TIMEOUT = 5000;
+var TIMEOUT = 6000;
 
-// بعد از چند میلی‌ثانیه دکمه‌های دستی نشون داده بشه
-var SHOW_MANUAL_AFTER = 3500;
+// اگه تا این‌قدر جواب نیومد، انتخاب دستی هم نشون داده بشه (بررسی خودکار ادامه داره)
+var MANUAL_AFTER = 3500;
 
 /* =====================================================
-   ⛔ از اینجا به پایین نیازی به تغییر نیست
+   از اینجا به پایین نیازی به تغییر نیست
    ===================================================== */
-
-document.title = CAFE_NAME ? "منو | " + CAFE_NAME : "منو";
-document.getElementById("cafeName").textContent = CAFE_NAME;
 
 var extra = location.search + location.hash;
 var statusEl = document.getElementById("status");
-var diagEl = document.getElementById("diag");
-var linksEl = document.getElementById("links");
-var spinEl = document.getElementById("spin");
-var redirected = false;
-var gen = 0, ctrls = [], timers = [], res = {}, failed = {};
+var panelEl = document.getElementById("panel");
+var opsEl = document.getElementById("ops");
+var redirected = false, dead = false, gen = 0, pending = 0, ctrls = [], timers = [];
 
-function base(site) { return site.url.replace(/\/+$/, ""); }
-function fullUrl(site) { return base(site) + "/" + extra; }
+if (CAFE_NAME) {
+  document.getElementById("cafeName").textContent = CAFE_NAME;
+  document.title = "منو | " + CAFE_NAME;
+}
 
-// دکمه‌های دستی + تلاش دوباره
-SITES.forEach(function (site) {
+function base(s) { return s.url.replace(/\/+$/, ""); }
+function fullUrl(s) { return base(s) + "/" + extra; }
+
+// دکمه‌های دستی (لینک مستقیم، پس بدون جاوااسکریپت هم کار می‌کنن)
+SITES.forEach(function (s) {
   var a = document.createElement("a");
-  a.href = fullUrl(site);
-  a.textContent = site.name;
-  linksEl.appendChild(a);
+  a.className = "btn";
+  a.href = fullUrl(s);
+  a.textContent = s.name;
+  opsEl.appendChild(a);
 });
-var retry = document.createElement("a");
-retry.href = "#";
-retry.textContent = "تلاش دوباره ↻";
-retry.onclick = function (e) { e.preventDefault(); start(); };
-linksEl.appendChild(retry);
-
-function showManual() { if (!redirected) linksEl.style.display = "block"; }
-
-// وضعیت زندهٔ هر سایت (زمان پاسخ)
-function diag() {
-  var per = PARALLEL * WAVES.length;
-  diagEl.textContent = SITES.map(function (s, i) {
-    var v = res[i] != null ? Math.round(res[i]) + "ms" : ((failed[i] || 0) >= per ? "x" : "...");
-    return s.url.replace(/^https?:\/\//, "") + " " + v;
-  }).join("   ");
-}
-
-function go(site) {
-  if (redirected) return;
-  redirected = true;
-  stop();
-  statusEl.textContent = "وصل شد ✓ " + site.name;
-  location.replace(fullUrl(site));
-}
-
-function fail() {
-  if (redirected) return;
-  spinEl.style.display = "none";
-  statusEl.textContent = "اتصال خودکار برقرار نشد";
-  showManual();
-}
+document.getElementById("retry").onclick = function (e) { e.preventDefault(); start(); };
 
 function stop() {
   ctrls.forEach(function (c) { try { c.abort(); } catch (e) {} });
@@ -152,86 +139,71 @@ function stop() {
   ctrls = []; timers = [];
 }
 
-// یک پینگ: به محض رسیدن هدر جواب، موفق حساب می‌شه (بدنه دانلود نمی‌شه)
-function ping(site, cb) {
-  var ctrl = new AbortController();
+function go(s) {
+  if (redirected) return;
+  redirected = true;
+  stop();
+  statusEl.textContent = "وصل شد، در حال باز کردن منو";
+  location.replace(fullUrl(s));
+}
+
+function manual(failed) {
+  if (redirected) return;
+  panelEl.className = "panel on";
+  if (failed) {
+    dead = true;
+    document.body.className = "failed";
+    statusEl.textContent = navigator.onLine === false ? "به اینترنت وصل نیستی" : "اتصال خودکار برقرار نشد";
+  } else if (!dead) {
+    statusEl.textContent = "هنوز در حال بررسی هستیم. اگه دیر شد، اینترنتت رو انتخاب کن";
+  }
+}
+
+// هر سایتی که اول جواب بده برنده‌ست. فقط رسیدن هدر جواب کافیه و بدنه دانلود نمی‌شه.
+function ping(i, g) {
+  var ctrl = window.AbortController ? new AbortController() : { abort: function () {} };
   ctrls.push(ctrl);
-  var t0 = performance.now();
-  var t = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
-  fetch(base(site) + PING_PATH + "?_t=" + Date.now() + Math.random().toString(36).slice(2, 6), {
+  timers.push(setTimeout(function () { ctrl.abort(); }, TIMEOUT));
+  fetch(base(SITES[i]) + PING_PATH, {
     method: "GET",
     mode: "no-cors",
     cache: "no-store",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
     priority: "high",
     signal: ctrl.signal
-  })
-  .then(function () { clearTimeout(t); cb(true, performance.now() - t0); })
-  .catch(function () { clearTimeout(t); cb(false, 0); });
+  }).then(
+    function () { if (g === gen) go(SITES[i]); },
+    function () { if (g === gen && !redirected && --pending === 0) manual(true); }
+  );
 }
 
-// هر بار که صدا زده بشه از صفر شروع می‌کنه
+function wave(g) {
+  if (redirected || g !== gen) return;
+  for (var i = 0; i < SITES.length; i++) ping(i, g);
+}
+
 function start() {
   stop();
   var g = ++gen;
-  var total = SITES.length * PARALLEL * WAVES.length, done = 0, grace = false;
-  res = {}; failed = {};
-  spinEl.style.display = "";
-  statusEl.textContent = "لطفاً صبر کن";
-  diag();
-
-  function best() {
-    var bi = -1;
-    for (var i in res) if (bi < 0 || res[i] < res[bi]) bi = i;
-    return bi < 0 ? null : { i: +bi, ms: res[bi] };
-  }
-  function decide() {
-    var b = best();
-    if (!b) return;
-    var all = Object.keys(res).length === SITES.length;
-    if (b.ms <= FAST_MS || all) return go(SITES[b.i]);
-    if (!grace) {
-      grace = true;
-      timers.push(setTimeout(function () { var x = best(); if (x) go(SITES[x.i]); }, GRACE_MS));
-    }
-  }
-
-  function wave() {
-    if (redirected || g !== gen) return;
-    SITES.forEach(function (site, idx) {
-      for (var k = 0; k < PARALLEL; k++) {
-        ping(site, function (ok, ms) {
-          if (g !== gen || redirected) return;
-          done++;
-          if (ok) {
-            if (res[idx] == null || ms < res[idx]) res[idx] = ms;
-            diag();
-            decide();
-          } else {
-            failed[idx] = (failed[idx] || 0) + 1;
-            diag();
-            if (done === total && !Object.keys(res).length) fail();
-          }
-        });
-      }
-    });
-  }
-
+  dead = false;
+  pending = SITES.length * WAVES.length;
+  document.body.className = "";
+  panelEl.className = "panel";
+  statusEl.textContent = "در حال پیدا کردن بهترین مسیر";
+  if (!window.fetch || navigator.onLine === false) return manual(true);
   WAVES.forEach(function (w) {
-    if (w === 0) wave(); else timers.push(setTimeout(wave, w));
+    if (w === 0) wave(g); else timers.push(setTimeout(function () { wave(g); }, w));
   });
-  timers.push(setTimeout(showManual, SHOW_MANUAL_AFTER));
+  timers.push(setTimeout(function () { manual(false); }, MANUAL_AFTER));
 }
 
-// اگه وسط کار نت عوض شد (سیم‌کارت یا وای‌فای) از اول شروع کن
-function onNet() { if (!redirected) start(); }
-window.addEventListener("online", onNet);
-if (navigator.connection && navigator.connection.addEventListener) {
-  navigator.connection.addEventListener("change", onNet);
-}
+// وقتی نت وصل شد یا کاربر به صفحهٔ شکست‌خورده برگشت، از اول شروع کن
+window.addEventListener("online", function () { if (!redirected) start(); });
 document.addEventListener("visibilitychange", function () {
-  if (!document.hidden && !redirected) start();
+  if (!document.hidden && !redirected && dead) start();
 });
-// اگه مرورگر صفحه رو از حافظهٔ قبلی برگردوند (با وضعیت قدیمی)، تازه‌اش کن
+// اگه مرورگر صفحه رو از حافظهٔ قبلی برگردوند، تازه‌اش کن
 window.addEventListener("pageshow", function (e) { if (e.persisted) location.reload(); });
 
 start();
