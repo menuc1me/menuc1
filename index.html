@@ -85,11 +85,17 @@ var CAFE_NAME = "";
 // هر خط = یک اپراتور
 //   name: اسمی که روی دکمهٔ انتخاب دستی نوشته می‌شه
 //   url : آدرسی که برای اون اینترنت باز می‌شه
-// برای عوض کردن، فقط url ها رو جابه‌جا کن. هر کدوم اول لیست باشه زودتر پینگ می‌شه.
+// ترتیب لیست = اولویت. همهٔ سایت‌ها همزمان پینگ می‌شن، ولی اگه سایت اولی جواب بده
+// همون انتخاب می‌شه، حتی اگه سایت بعدی زودتر جواب داده باشه.
+// پس سایتی که روی اون اینترنت درسته ولی شاید دیرتر جواب بده رو بالاتر بذار.
 var SITES = [
-  { name: "همراه اول", url: "https://www.menuc1.ir" },
-  { name: "ایرانسل",   url: "https://menuc1.ir" }
+  { name: "ایرانسل",   url: "https://menuc1.ir" },
+  { name: "همراه اول", url: "https://www.menuc1.ir" }
 ];
+
+// اگه فقط یه سایتِ کم‌اولویت جواب داد، این‌قدر (میلی‌ثانیه) صبر می‌کنه ببینه سایت‌های بالاتر هم جواب می‌دن یا نه.
+// کمترش سریع‌تره ولی ممکنه سایت اشتباه انتخاب بشه. بیشترش دقیق‌تره ولی کندتر.
+var GRACE_MS = 600;
 
 // مسیر تست. بهتره یه آدرس خیلی سبک مثل "/ping" بسازی که فقط یه جواب خالی بده
 // (مثلاً با ورکر کلادفلر). اگه نداری "/" بمونه.
@@ -114,6 +120,7 @@ var statusEl = document.getElementById("status");
 var panelEl = document.getElementById("panel");
 var opsEl = document.getElementById("ops");
 var redirected = false, dead = false, gen = 0, pending = 0, ctrls = [], timers = [];
+var ok = {}, lost = {}, miss = {}, graceT = false;
 
 if (CAFE_NAME) {
   document.getElementById("cafeName").textContent = CAFE_NAME;
@@ -159,7 +166,25 @@ function manual(failed) {
   }
 }
 
-// هر سایتی که اول جواب بده برنده‌ست. فقط رسیدن هدر جواب کافیه و بدنه دانلود نمی‌شه.
+// سایت‌ها به ترتیب اولویت بررسی می‌شن. اولین سایتِ جواب‌داده انتخاب می‌شه، ولی اگه
+// سایتِ بالاتری هنوز نه جواب داده و نه از دور خارج شده، تا GRACE_MS براش صبر می‌کنیم.
+function settle(force) {
+  if (redirected) return;
+  var wait = false;
+  for (var i = 0; i < SITES.length; i++) {
+    if (ok[i]) {
+      if (!wait || force) return go(SITES[i]);
+      if (!graceT) {
+        graceT = true;
+        timers.push(setTimeout(function () { settle(true); }, GRACE_MS));
+      }
+      return;
+    }
+    if (!lost[i]) wait = true;
+  }
+}
+
+// فقط رسیدن هدر جواب کافیه و بدنه دانلود نمی‌شه.
 function ping(i, g) {
   var ctrl = window.AbortController ? new AbortController() : { abort: function () {} };
   ctrls.push(ctrl);
@@ -173,8 +198,13 @@ function ping(i, g) {
     priority: "high",
     signal: ctrl.signal
   }).then(
-    function () { if (g === gen) go(SITES[i]); },
-    function () { if (g === gen && !redirected && --pending === 0) manual(true); }
+    function () { if (g === gen) { ok[i] = true; settle(false); } },
+    function () {
+      if (g !== gen || redirected) return;
+      miss[i] = (miss[i] || 0) + 1;
+      if (miss[i] >= WAVES.length) { lost[i] = true; settle(false); }
+      if (--pending === 0 && !Object.keys(ok).length) manual(true);
+    }
   );
 }
 
@@ -187,6 +217,7 @@ function start() {
   stop();
   var g = ++gen;
   dead = false;
+  ok = {}; lost = {}; miss = {}; graceT = false;
   pending = SITES.length * WAVES.length;
   document.body.className = "";
   panelEl.className = "panel";
