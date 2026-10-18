@@ -23,8 +23,6 @@
     box-shadow:10px 10px 22px var(--lo),-10px -10px 22px var(--hi);
   }
   h1{font-size:21px; font-weight:700; margin:0 0 26px}
-
-  /* حلقهٔ فرورفته با کمان نارنجی */
   .ring{
     position:relative; width:76px; height:76px; margin:0 auto 24px; border-radius:50%;
     box-shadow:inset 6px 6px 12px var(--lo),inset -6px -6px 12px var(--hi);
@@ -36,10 +34,8 @@
   }
   .failed .ring::after{animation:none; border-top-color:var(--mut); opacity:.5}
   @keyframes spin{to{transform:rotate(360deg)}}
-
   #status{margin:0; min-height:25px; font-size:14px; line-height:1.8; color:var(--mut)}
-
-  /* انتخاب دستی */
+  #diag{margin:6px 0 0; min-height:14px; font-size:11px; color:var(--mut); direction:ltr}
   .panel{display:none; margin-top:26px}
   .panel.on{display:block; animation:in .35s ease-out}
   @keyframes in{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
@@ -55,7 +51,6 @@
   .btn:active{box-shadow:inset 4px 4px 8px var(--lo),inset -4px -4px 8px var(--hi); color:var(--ac)}
   .btn:focus-visible{outline:2px solid var(--ac); outline-offset:3px}
   .retry{margin-top:20px; font-size:14px; font-weight:400; color:var(--mut)}
-
   @media (prefers-reduced-motion:reduce){
     .ring::after{animation-duration:3s}
     .panel.on{animation:none}
@@ -67,6 +62,7 @@
   <h1 id="cafeName">منو</h1>
   <div class="ring" aria-hidden="true"></div>
   <p id="status" role="status" aria-live="polite">در حال پیدا کردن بهترین مسیر</p>
+  <p id="diag"></p>
   <section id="panel" class="panel">
     <p class="ask">اینترنت گوشیت کدومه؟</p>
     <div class="ops" id="ops"></div>
@@ -79,66 +75,114 @@
    فقط این قسمت رو تغییر بده
    ===================================================== */
 
-// اسم کافه (اختیاری). خالی بمونه، بالای صفحه فقط "منو" نوشته می‌شه
+// اسم کافه (اختیاری)
 var CAFE_NAME = "";
 
 // هر خط = یک اپراتور
-//   name: اسمی که روی دکمهٔ انتخاب دستی نوشته می‌شه
-//   url : آدرسی که برای اون اینترنت باز می‌شه
-// ترتیب لیست = اولویت. همهٔ سایت‌ها همزمان پینگ می‌شن، ولی اگه سایت اولی جواب بده
-// همون انتخاب می‌شه، حتی اگه سایت بعدی زودتر جواب داده باشه.
-// پس سایتی که روی اون اینترنت درسته ولی شاید دیرتر جواب بده رو بالاتر بذار.
+//   name : اسمی که روی دکمهٔ انتخاب دستی نوشته می‌شه
+//   url  : آدرسی که برای اون اپراتور باز می‌شه
+//   asn  : شمارهٔ ASN اپراتور (برای تشخیص خودکار)
+//   match: بخشی از اسم شرکت (حروف کوچک)، اگه شمارهٔ ASN جواب نداد
+// ترتیب خطوط = ترتیب دکمه‌های انتخاب دستی
 var SITES = [
-  { name: "ایرانسل",   url: "https://menuc1.ir" },
-  { name: "همراه اول", url: "https://www.menuc1.ir" }
+  { name: "همراه اول", url: "https://www.menuc1.ir", asn: [197207], match: ["mobile communication company of iran"] },
+  { name: "ایرانسل",   url: "https://menuc1.ir",     asn: [44244],  match: ["irancell", "iran cell"] }
 ];
 
-// اگه فقط یه سایتِ کم‌اولویت جواب داد، این‌قدر (میلی‌ثانیه) صبر می‌کنه ببینه سایت‌های بالاتر هم جواب می‌دن یا نه.
-// کمترش سریع‌تره ولی ممکنه سایت اشتباه انتخاب بشه. بیشترش دقیق‌تره ولی کندتر.
-var GRACE_MS = 600;
+// تشخیص اپراتور از روی IP. اگه false باشه فقط با پینگ انتخاب می‌کنه
+var USE_ASN = true;
 
-// مسیر تست. بهتره یه آدرس خیلی سبک مثل "/ping" بسازی که فقط یه جواب خالی بده
-// (مثلاً با ورکر کلادفلر). اگه نداری "/" بمونه.
+// سرویس‌هایی که همزمان صدا زده می‌شن (اولین جواب معتبر برنده‌ست)
+var LOOKUPS = [
+  "https://ipwho.is/",
+  "https://ipapi.co/json/",
+  "https://ipinfo.io/json",
+  "https://get.geojs.io/v1/ip/geo.json"
+];
+
+// حداکثر انتظار برای تشخیص اپراتور، بعدش با پینگ ادامه می‌ده (میلی‌ثانیه)
+var ASN_WAIT_MS = 1500;
+var LOOKUP_TIMEOUT = 4000;
+
+// مسیر تست پینگ (اگه /ping ساختی بذار "/ping"، وگرنه "/")
 var PING_PATH = "/";
 
-// پینگ‌ها در این لحظه‌ها (میلی‌ثانیه بعد از شروع) برای هر دو سایت شلیک می‌شن.
-// اتصال‌های قبلی قطع نمی‌شن، پس اگه بسته‌ای گم بشه، دور بعد جلوتر می‌افته.
-var WAVES = [0, 800, 1900, 3500];
+// هر سایت در هر دور چند پینگ همزمان بگیره
+var PARALLEL = 2;
+
+// دورهای پینگ (میلی‌ثانیه بعد از شروع)
+var WAVES = [0, 1500, 3500];
+
+// اگه اولین جواب پینگ سریع‌تر از این بود، همون لحظه می‌ره
+var FAST_MS = 900;
+
+// اگه اولین جواب کند بود، این‌قدر صبر می‌کنه ببینه سایت دیگه بهتره یا نه
+var GRACE_MS = 700;
 
 // حداکثر انتظار هر پینگ
-var TIMEOUT = 6000;
+var TIMEOUT = 5000;
 
-// اگه تا این‌قدر جواب نیومد، انتخاب دستی هم نشون داده بشه (بررسی خودکار ادامه داره)
-var MANUAL_AFTER = 3500;
+// بعد از چند میلی‌ثانیه دکمه‌های دستی هم نشون داده بشه
+var SHOW_MANUAL_AFTER = 3500;
+
+// نمایش ASN تشخیص‌داده‌شده و زمان پینگ زیر صفحه (برای تست)
+var SHOW_DIAG = false;
 
 /* =====================================================
    از اینجا به پایین نیازی به تغییر نیست
    ===================================================== */
 
-var extra = location.search + location.hash;
-var statusEl = document.getElementById("status");
-var panelEl = document.getElementById("panel");
-var opsEl = document.getElementById("ops");
-var redirected = false, dead = false, gen = 0, pending = 0, ctrls = [], timers = [];
-var ok = {}, lost = {}, miss = {}, graceT = false;
-
 if (CAFE_NAME) {
-  document.getElementById("cafeName").textContent = CAFE_NAME;
   document.title = "منو | " + CAFE_NAME;
+  document.getElementById("cafeName").textContent = CAFE_NAME;
 }
 
-function base(s) { return s.url.replace(/\/+$/, ""); }
-function fullUrl(s) { return base(s) + "/" + extra; }
+var extra = location.search + location.hash;
+var statusEl = document.getElementById("status");
+var diagEl = document.getElementById("diag");
+var panelEl = document.getElementById("panel");
+var opsEl = document.getElementById("ops");
+var redirected = false;
+var gen = 0, ctrls = [], timers = [], res = {}, failed = {};
+var asnState = "pending", asnTxt = "", decideFn = null;
 
-// دکمه‌های دستی (لینک مستقیم، پس بدون جاوااسکریپت هم کار می‌کنن)
-SITES.forEach(function (s) {
+function base(site) { return site.url.replace(/\/+$/, ""); }
+function fullUrl(site) { return base(site) + "/" + extra; }
+
+SITES.forEach(function (site) {
   var a = document.createElement("a");
   a.className = "btn";
-  a.href = fullUrl(s);
-  a.textContent = s.name;
+  a.href = fullUrl(site);
+  a.textContent = site.name;
   opsEl.appendChild(a);
 });
 document.getElementById("retry").onclick = function (e) { e.preventDefault(); start(); };
+
+function showManual() { if (!redirected) panelEl.className = "panel on"; }
+
+function diag() {
+  if (!SHOW_DIAG) return;
+  var per = PARALLEL * WAVES.length;
+  diagEl.textContent = (asnTxt ? asnTxt + "   " : "") + SITES.map(function (s, i) {
+    var v = res[i] != null ? Math.round(res[i]) + "ms" : ((failed[i] || 0) >= per ? "x" : "...");
+    return s.url.replace(/^https?:\/\//, "") + " " + v;
+  }).join("   ");
+}
+
+function go(site) {
+  if (redirected) return;
+  redirected = true;
+  stop();
+  statusEl.textContent = "وصل شد، در حال باز کردن منو";
+  location.replace(fullUrl(site));
+}
+
+function fail() {
+  if (redirected) return;
+  document.body.className = "failed";
+  statusEl.textContent = "اتصال خودکار برقرار نشد";
+  showManual();
+}
 
 function stop() {
   ctrls.forEach(function (c) { try { c.abort(); } catch (e) {} });
@@ -146,93 +190,140 @@ function stop() {
   ctrls = []; timers = [];
 }
 
-function go(s) {
-  if (redirected) return;
-  redirected = true;
-  stop();
-  statusEl.textContent = "وصل شد، در حال باز کردن منو";
-  location.replace(fullUrl(s));
-}
+/* ---------- تشخیص اپراتور از روی IP ---------- */
 
-function manual(failed) {
-  if (redirected) return;
-  panelEl.className = "panel on";
-  if (failed) {
-    dead = true;
-    document.body.className = "failed";
-    statusEl.textContent = navigator.onLine === false ? "به اینترنت وصل نیستی" : "اتصال خودکار برقرار نشد";
-  } else if (!dead) {
-    statusEl.textContent = "هنوز در حال بررسی هستیم. اگه دیر شد، اینترنتت رو انتخاب کن";
-  }
-}
-
-// سایت‌ها به ترتیب اولویت بررسی می‌شن. اولین سایتِ جواب‌داده انتخاب می‌شه، ولی اگه
-// سایتِ بالاتری هنوز نه جواب داده و نه از دور خارج شده، تا GRACE_MS براش صبر می‌کنیم.
-function settle(force) {
-  if (redirected) return;
-  var wait = false;
+// کدوم اپراتور از SITES با این پاسخ جور درمیاد؟ (-1 یعنی هیچ‌کدوم)
+function opOf(s) {
   for (var i = 0; i < SITES.length; i++) {
-    if (ok[i]) {
-      if (!wait || force) return go(SITES[i]);
-      if (!graceT) {
-        graceT = true;
-        timers.push(setTimeout(function () { settle(true); }, GRACE_MS));
-      }
-      return;
+    var a = SITES[i].asn || [], m = SITES[i].match || [], k;
+    for (k = 0; k < a.length; k++) {
+      if (s.indexOf("as" + a[k]) >= 0 || s.indexOf('"asn":' + a[k]) >= 0 || s.indexOf('"asn":"' + a[k]) >= 0) return i;
     }
-    if (!lost[i]) wait = true;
+    for (k = 0; k < m.length; k++) if (s.indexOf(m[k].toLowerCase()) >= 0) return i;
   }
+  return -1;
 }
 
-// فقط رسیدن هدر جواب کافیه و بدنه دانلود نمی‌شه.
-function ping(i, g) {
-  var ctrl = window.AbortController ? new AbortController() : { abort: function () {} };
+function lookups(g) {
+  var left = LOOKUPS.length;
+
+  function next() {
+    asnState = "none";
+    diag();
+    if (decideFn) decideFn();
+  }
+  function got(d) {
+    if (g !== gen || redirected || asnState !== "pending") return;
+    var s = d ? JSON.stringify(d).toLowerCase() : "";
+    var valid = s && (s.indexOf("asn") >= 0 || s.indexOf("org") >= 0) &&
+      s.indexOf('"error":true') < 0 && s.indexOf('"success":false') < 0;
+    if (valid) {
+      var c = d.connection || {};
+      asnTxt = "AS" + String(c.asn || d.asn || "?").replace(/^AS/i, "") + " " + (c.org || d.org || d.organization_name || "");
+      var i = opOf(s);
+      if (i >= 0) { asnState = "hit"; return go(SITES[i]); }
+      return next();
+    }
+    if (--left === 0) next();
+  }
+
+  LOOKUPS.forEach(function (u) {
+    var ctrl = new AbortController();
+    ctrls.push(ctrl);
+    var t = setTimeout(function () { ctrl.abort(); }, LOOKUP_TIMEOUT);
+    fetch(u, { mode: "cors", cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer", signal: ctrl.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { clearTimeout(t); got(d); }, function () { clearTimeout(t); got(null); });
+  });
+
+  // اگه خیلی طول کشید، با پینگ ادامه بده
+  timers.push(setTimeout(function () {
+    if (g === gen && !redirected && asnState === "pending") next();
+  }, ASN_WAIT_MS));
+}
+
+/* ---------- پینگ (روش پشتیبان برای اینترنت‌های دیگه یا وقتی تشخیص جواب نداد) ---------- */
+
+// یک پینگ: به محض رسیدن هدر جواب، موفق حساب می‌شه (بدنه دانلود نمی‌شه)
+function ping(site, cb) {
+  var ctrl = new AbortController();
   ctrls.push(ctrl);
-  timers.push(setTimeout(function () { ctrl.abort(); }, TIMEOUT));
-  fetch(base(SITES[i]) + PING_PATH, {
+  var t0 = performance.now();
+  var t = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
+  fetch(base(site) + PING_PATH + "?_t=" + Date.now() + Math.random().toString(36).slice(2, 6), {
     method: "GET",
     mode: "no-cors",
     cache: "no-store",
-    credentials: "omit",
-    referrerPolicy: "no-referrer",
     priority: "high",
     signal: ctrl.signal
-  }).then(
-    function () { if (g === gen) { ok[i] = true; settle(false); } },
-    function () {
-      if (g !== gen || redirected) return;
-      miss[i] = (miss[i] || 0) + 1;
-      if (miss[i] >= WAVES.length) { lost[i] = true; settle(false); }
-      if (--pending === 0 && !Object.keys(ok).length) manual(true);
-    }
-  );
+  })
+  .then(function () { clearTimeout(t); cb(true, performance.now() - t0); })
+  .catch(function () { clearTimeout(t); cb(false, 0); });
 }
 
-function wave(g) {
-  if (redirected || g !== gen) return;
-  for (var i = 0; i < SITES.length; i++) ping(i, g);
-}
-
+// هر بار که صدا زده بشه از صفر شروع می‌کنه
 function start() {
   stop();
   var g = ++gen;
-  dead = false;
-  ok = {}; lost = {}; miss = {}; graceT = false;
-  pending = SITES.length * WAVES.length;
+  var total = SITES.length * PARALLEL * WAVES.length, done = 0, grace = false;
+  res = {}; failed = {};
+  asnState = (USE_ASN && window.fetch && window.AbortController) ? "pending" : "none";
+  asnTxt = ""; decideFn = null;
   document.body.className = "";
   panelEl.className = "panel";
   statusEl.textContent = "در حال پیدا کردن بهترین مسیر";
-  if (!window.fetch || navigator.onLine === false) return manual(true);
+  diag();
+
+  function best() {
+    var bi = -1;
+    for (var i in res) if (bi < 0 || res[i] < res[bi]) bi = i;
+    return bi < 0 ? null : { i: +bi, ms: res[bi] };
+  }
+  function decide() {
+    if (asnState === "pending") return; // اول منتظر تشخیص اپراتور
+    var b = best();
+    if (!b) return;
+    var all = Object.keys(res).length === SITES.length;
+    if (b.ms <= FAST_MS || all) return go(SITES[b.i]);
+    if (!grace) {
+      grace = true;
+      timers.push(setTimeout(function () { var x = best(); if (x) go(SITES[x.i]); }, GRACE_MS));
+    }
+  }
+  decideFn = decide;
+
+  function wave() {
+    if (redirected || g !== gen) return;
+    SITES.forEach(function (site, idx) {
+      for (var k = 0; k < PARALLEL; k++) {
+        ping(site, function (ok, ms) {
+          if (g !== gen || redirected) return;
+          done++;
+          if (ok) {
+            if (res[idx] == null || ms < res[idx]) res[idx] = ms;
+            diag();
+            decide();
+          } else {
+            failed[idx] = (failed[idx] || 0) + 1;
+            diag();
+            if (done === total && !Object.keys(res).length && asnState !== "pending") fail();
+          }
+        });
+      }
+    });
+  }
+
+  if (asnState === "pending") lookups(g);
   WAVES.forEach(function (w) {
-    if (w === 0) wave(g); else timers.push(setTimeout(function () { wave(g); }, w));
+    if (w === 0) wave(); else timers.push(setTimeout(wave, w));
   });
-  timers.push(setTimeout(function () { manual(false); }, MANUAL_AFTER));
+  timers.push(setTimeout(showManual, SHOW_MANUAL_AFTER));
 }
 
 // وقتی نت وصل شد یا کاربر به صفحهٔ شکست‌خورده برگشت، از اول شروع کن
 window.addEventListener("online", function () { if (!redirected) start(); });
 document.addEventListener("visibilitychange", function () {
-  if (!document.hidden && !redirected && dead) start();
+  if (!document.hidden && !redirected && document.body.className === "failed") start();
 });
 // اگه مرورگر صفحه رو از حافظهٔ قبلی برگردوند، تازه‌اش کن
 window.addEventListener("pageshow", function (e) { if (e.persisted) location.reload(); });
